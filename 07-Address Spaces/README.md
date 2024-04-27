@@ -87,7 +87,7 @@ location of stack : 0x7fff691aea64
 - Live beyond the call invocation
 - 사용자와 시스템 모두에게 더 많은 과제를 제시함
 
-## Memory APi
+## Memory API
 - `void *malloc(size_t size)`
     - library call임 (system call이 아님)
     - 더 많은 메모리를 요청하기 위해 OS를 호출하는 일부 system call을 기반으로 구축됨
