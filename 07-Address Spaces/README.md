@@ -1,7 +1,7 @@
 # Address Spaces (1)
 ## 초기 시스템
 - 추상화를 많이 제공하지 않음
-    - 현재 물리적 메모리에 실행 중인 프로그램이 하나 있음
+    - 현재 물리 메모리에 실행 중인 프로그램이 하나 있음
     - `Physical Memory`
         - `Operating System`    : 0KB ~ 64KB
         - `Current Program`     : 64KB ~ MAX 
@@ -10,14 +10,14 @@
 - `Physical Memory`
     |프로세스|범위|
     |:-:|:-:|
-    |`Operating System`|0KB ~ 64KB|
-    |`(free)`          |64KB ~ 128KB|
-    |`Process C`      |128KB ~ 192KB|
-    |`Process B`      |192KB ~ 256KB|
-    |`(free)`         |256KB ~ 320KB|
-    |`Process A`      |320KB ~ 384KB|
-    |`(free)`         |384KB ~ 448KB|
-    |`(free)`         |448KB ~ 512KB|
+    |Operating System|0KB ~ 64KB|
+    |(free)          |64KB ~ 128KB|
+    |Process C       |128KB ~ 192KB|
+    |Process B       |192KB ~ 256KB|
+    |(free)          |256KB ~ 320KB|
+    |Process A       |320KB ~ 384KB|
+    |(free)          |384KB ~ 448KB|
+    |(free)          |448KB ~ 512KB|
 
 `Multiprogramming`
 - 특정 시간에 여러 프로세스들이 `ready to run`이고 OS는 이들을 switch함
@@ -37,16 +37,16 @@
     - 코드, 스택과 힙
 - 예시
     - 64KB address space가 0에서 시작함
-    - 프로그램이 실제로 물리적 메모리가 0부터 64KB에 있는 것은 아님
+    - 프로그램이 실제로 물리 메모리가 0부터 64KB에 있는 것은 아님
         |프로그램|범위|
         |:-:|:-:|
-        |`Program Code`|0KB ~ 20KB|
-        |`Heap`|20KB ~ 40KB|
-        |`(free)`|40KB ~ 44KB|
-        |`Stack`|44KB ~ 64KB|
+        |Program Code|0KB ~ 20KB|
+        |Heap|20KB ~ 40KB|
+        |(free)|40KB ~ 44KB|
+        |Stack|44KB ~ 64KB|
 
 ## 어떻게 메모리를 가상화할까?
-- OS는 어떻게 하나의 물리적 메모리 위에 여러 개의 실행 중인 프로세스를 위한 private하고 잠재적으로 큰 address space를 만들 수 있을까?
+- OS는 어떻게 하나의 물리 메모리 위에 여러 개의 실행 중인 프로세스를 위한 private하고 잠재적으로 큰 address space를 만들 수 있을까?
 
 ## Virtual Memory
 - 실행 중인 프로그램은 특정 주소(0)의 메모리에 불러와지고 잠재적으로 매우 큰 address space($2^{32}$ bytes 또는 $2^{64}$ bytes)를 가진다고 생각하자
@@ -171,26 +171,26 @@ Execute this instruction (store to address 15KB)
     - 어떻게 효율적인 매모리의 가상화를 구축할 수 있을까?
 
 ## 간단한 메모리 가상화를 위한 가정
-- 유저의 address space는 반드시 물리적 메모리에 연속적으로 있어야 함
+- 유저의 address space는 반드시 물리 메모리에 연속적으로 있어야 함
 - address space의 크기가 매우 크지 않아야 함
-    - 물리적 메모리의 크기보다 작아야 함
+    - 물리 메모리의 크기보다 작아야 함
 - 각 address space는 정확히 같은 크기여야 함
 
 ## 메모리 재배치
 ||address space|physical memory|
 |:-:|:-:|:-:|
-|`Operating System`||0KB ~ 16KB|
-|`(not in use)`||16KB ~ 32KB|
-|`Program Code`|0KB ~ 2KB|32KB ~ 34KB|
-|`Heap`|2KB ~ 4KB|34KB ~ 36KB|
-|`(free)`|4KB ~ 14KB|36KB ~ 46KB|
-|`Stack`|14KB ~ 16KB|46KB ~ 48KB|
-|`(not in use)`||48KB ~ 64KB|
+|Operating System||0KB ~ 16KB|
+|(not in use)||16KB ~ 32KB|
+|Program Code|0KB ~ 2KB|32KB ~ 34KB|
+|Heap|2KB ~ 4KB|34KB ~ 36KB|
+|(free)|4KB ~ 14KB|36KB ~ 46KB|
+|Stack|14KB ~ 16KB|46KB ~ 48KB|
+|(not in use)||48KB ~ 64KB|
 
 ## Dynamic (Hardware-based) Relocation
 `Base and bounding`
 - base과 bounds 레지스터
-    - `base` : address space를 물리적 메모리의 어느 곳에나 배치할 수 있음 (시작 지점)
+    - `base` : address space를 물리 메모리의 어느 곳에나 배치할 수 있음 (시작 지점)
     - `bounds` : 프로세스가 자신의 address space에만 접근할 수 있다는 것을 보장함 (끝 지점)
 
 `Address translation`
@@ -227,4 +227,4 @@ Execute this instruction (store to address 15KB)
 |base/bounds management|context switch 또는 프로세스의 address space 이동 시 base/bounds를 올바르게 설정해야 함|
 |Exception handling|- 예외 발생 시 실행할 코드가 필요함<br>- 가능한 조치는 프로세스를 종료하는 것|
 
-*) 가변 크기의 address space와 물리적 메모리 크기보다 큰 address space는 처리하기가 더 어려움
+*) 가변 크기의 address space와 물리 메모리 크기보다 큰 address space는 처리하기가 더 어려움
