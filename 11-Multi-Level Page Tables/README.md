@@ -75,7 +75,7 @@
         - `10` : 힙
         - `11` : 스택
     - 31~30: Seg
-    - 39~12: VPN
+    - 29~12: VPN
     - 11~00: Offset
     ```C
     SN = (VirtualAddress & SEG_MASK) >> SN_SHIFT
