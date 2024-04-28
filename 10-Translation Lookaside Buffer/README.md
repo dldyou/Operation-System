@@ -139,7 +139,7 @@
 #### Random  
 - 랜덤으로 교체
 
-- MIPS TLB entry
+#### MIPS TLB entry
     - 00~18: VPN
     - 19: G
     - 24~31: ASID <br><br>
