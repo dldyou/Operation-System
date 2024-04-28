@@ -2,7 +2,7 @@
 ## Base and Bounding
 - base and bounds 레지스터
 - **"free"** space의 큰 청크 (스택과 힙 사이의 공간)
-    - 전체 address space를 물리 메모리 어딘가에 재배치할 때, 무리적 메모리를 차지함
+    - 전체 address space를 물리 메모리 어딘가에 재배치할 때, 물리 메모리를 차지함
     - 전체 address space가 메모리에 맞지 않을 때 프로그램을 실행하기 어려움
 
 ## 큰 address space를 어떻게 지원할까?
