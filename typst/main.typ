@@ -2,9 +2,9 @@
 
 #show: project.with(title: title, authors: authors,)
 
-#let img(src) = {
+#let img(src, width:100%) = {
     figure(
-        image("img/" + src + ".png")
+        image("img/" + src + ".png", width: width)
     )
 }
      
@@ -388,7 +388,7 @@ void unlock(lock_t *m) {
 }
 ```)
 
-= Lock-Based Concurrent Data Structures
+= 16-Lock-Based Concurrent Data Structures
 - Correctness
     - 올바르게 작동하려면 lock을 어떻게 추가해야 할까? (어떻게 thread safe하게 만들 수 있을까?)
 - Concurrency
@@ -476,5 +476,153 @@ int get(counter_t *c) {
     int val = c->global;
     pthread_mutex_unlock(&c->glock);
     return val; // only approximate!
+}
+```)
+== Concurrent Data Structures
+=== Linked Lists
+#img("image-3", width: 50%)
+#img("image-4", width: 50%)
+#prompt(```c
+typedef struct __node_t {
+    int key;
+    struct __node_t *next;
+} node_t;
+
+typedef struct __list_t {
+    node_t *head;
+    pthread_mutex_t lock;
+} list_t;
+
+void List_Init(list_t *L) {
+    L->head = NULL;
+    pthread_mutex_init(&L->lock, NULL);
+}
+
+int List_Insert(list_t *L, int key) {
+    pthread_mutex_lock(&L->lock);
+    node_t *new = malloc(sizeof(node_t));
+    if (new == NULL) {
+        perror("malloc");
+        pthread_mutex_unlock(&L->lock);
+        return -1; // fail
+    }
+    new->key = key;
+    // mutex lock은 여기로 옮겨지는 것이 좋음 (critical section이 여기부터)
+    new->next = L->head;
+    L->head = new;
+    pthread_mutex_unlock(&L->lock);
+    return 0; // success
+}
+
+int List_Lookup(list_t *L, int key) {
+    pthread_mutex_lock(&L->lock);
+    node_t *curr = L->head;
+    while (curr) {
+        if (curr->key == key) {
+            pthread_mutex_unlock(&L->lock);
+            return 0; // success (그러나 ret = 0을 저장해놓고 break한 다음에 마지막에 return ret을 하는 것이 좋음 -> 버그 찾기 쉬움)
+        }
+        curr = curr->next;
+    }
+    pthread_mutex_unlock(&L->lock);
+    return -1; // failure
+}
+```)
+
+==== Scaling Linked Lists
+- Hand-over-hand locking (lock coupling)
+    - 각 노드에 대해 lock을 추가 (전체 list에 대한 하나의 lock을 갖는 대신)
+    - list를 탐색할 때, 다음 노드의 lock을 얻고 현재 노드의 lock을 해제
+    - 각 노드에 대해 lock을 얻고 해제하는 오버헤드 존재
+- Non-blocking linked list
+    - compare-and-swap(CAS) 이용
+#prompt(```c
+void List_Insert(list_t *L, int key) {
+    ...
+RETRY: next = L->head;
+    new->next = next;
+    if (CAS(&L->head, next, new) == 0)
+        goto RETRY;
+}
+```)
+=== Queues
+#prompt(```c
+typedef struct __node_t {
+    int value;
+    struct __node_t *next;
+} node_t;
+
+typedef struct __queue_t {
+    node_t *head; // out
+    node_t *tail; // in
+    pthread_mutex_t headLock;
+    pthread_mutex_t tailLock;
+} queue_t;
+
+void Queue_Init(queue_t *q) {
+    node_t *tmp = malloc(sizeof(node_t)); // dummy node (head와 tail 연산의 분리를 위해)
+    tmp->next = NULL;
+    q->head = q->tail = tmp;
+    pthread_mutex_init(&q->headLock, NULL);
+    pthread_mutex_init(&q->tailLock, NULL);
+}
+```)
+
+#img("image-5", width: 50%)
+
+#prompt(```c
+void Queue_Enqueue(queue_t *q, int value) {
+    node_t *tmp = malloc(sizeof(node_t));
+    assert(tmp != NULL);
+    tmp->value = value;
+    tmp->next = NULL;
+    pthread_mutex_lock(&q->tailLock);
+    q->tail->next = tmp;
+    q->tail = tmp;
+    pthread_mutex_unlock(&q->tailLock);
+}
+```)
+
+#img("image-6", width: 50%)
+
+- 길이가 제한된 큐에서는 제대로 작동하지 않음, 조건 변수에 대해서는 다음 장에서 다루게 될 예정
+
+#prompt(```c
+int Queue_Dequeue(queue_t *q, int *value) {
+    pthread_mutex_lock(&q->headLock);
+    node_t *tmp = q->head;
+    node_t *newHead = tmp->next;
+    if (newHead == NULL) {
+        pthread_mutex_unlock(&q->headLock);
+        return -1; // queue was empty
+    }
+    *value = newHead->value;
+    q->head = newHead;
+    pthread_mutex_unlock(&q->headLock);
+    free(tmp);
+    return 0;
+}
+```)
+
+#img("image-7")
+
+=== Hash Table
+#prompt(```c
+#define BUCKETS (101)
+typedef struct __hash_t {
+    list_t lists[BUCKETS]; // 앞에서 본 list_t를 사용
+} hash_t;
+void Hash_Init(hash_t *H) {
+    int i;
+    for (i = 0; i < BUCKETS; i++)
+        List_Init(&H->lists[i]);
+}
+int Hash_Insert(hash_t *H, int key) {
+    int bucket = key % BUCKETS;
+    return List_Insert(&H->lists[bucket], key);
+}
+int Hash_Lookup(hash_t *H, int key) {
+    int bucket = key % BUCKETS;
+    return List_Lookup(&H->lists[bucket], key);
 }
 ```)
