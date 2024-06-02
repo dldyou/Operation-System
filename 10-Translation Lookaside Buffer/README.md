@@ -139,31 +139,31 @@
 #### Random  
 - 랜덤으로 교체
 
-- MIPS TLB entry
-    - 00~18: VPN
-    - 19: G
-    - 24~31: ASID <br><br>
-    - 02~25: PFN
-    - 26~28: C
-    - 29: D
-    - 30: V <br><br>
-    - 32-bit address space (4KB page)
-        - 20-bit: VPN
-        - 12-bit: offset
-    - PFN
-        - 24-bit (64GB main memory addressing 가능)
-    - Global bit(G)
-        - VPN이 G를 포함한 20-bit
-        - 1인 경우 공유되는 process 전체적으로 공유됨 (ex. 커널)
-    - ASID bits
-        - address space를 구분하기 위해 사용
-        - PID보다 적은 8bit 사용
-            - 생성 가능한 프로세스 개수가 ASID보다 작도록 진행
-            - ASID보다 많은 프로세스가 생기면 ASID를 안 씀
-            - ASID와 PID를 일대일로 매칭시키는 것이 아닌 각각 실행할 때마다 dynamic하게 맞춤
-    - Coherence bits (C)
-        - 캐시 정보
-    - Dirty bit (D)
-        - write operation이 발생했는지
-    - Valid bit (V)
-        - VPN와 PFN의 매핑이 유효한지
+#### MIPS TLB entry
+- 00~18: VPN
+- 19: G
+- 24~31: ASID <br><br>
+- 02~25: PFN
+- 26~28: C
+- 29: D
+- 30: V <br><br>
+- 32-bit address space (4KB page)
+    - 20-bit: VPN
+    - 12-bit: offset
+- PFN
+    - 24-bit (64GB main memory addressing 가능)
+- Global bit(G)
+    - VPN이 G를 포함한 20-bit
+    - 1인 경우 공유되는 process 전체적으로 공유됨 (ex. 커널)
+- ASID bits
+    - address space를 구분하기 위해 사용
+    - PID보다 적은 8bit 사용
+        - 생성 가능한 프로세스 개수가 ASID보다 작도록 진행
+        - ASID보다 많은 프로세스가 생기면 ASID를 안 씀
+        - ASID와 PID를 일대일로 매칭시키는 것이 아닌 각각 실행할 때마다 dynamic하게 맞춤
+- Coherence bits (C)
+    - 캐시 정보
+- Dirty bit (D)
+    - write operation이 발생했는지
+- Valid bit (V)
+    - VPN와 PFN의 매핑이 유효한지
