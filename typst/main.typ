@@ -626,3 +626,386 @@ int Hash_Lookup(hash_t *H, int key) {
     return List_Lookup(&H->lists[bucket], key);
 }
 ```)
+
+= 17-Condition Variables
+스레드를 계속 진행하기 전에 특정 조건이 true가 될 때까지 기다리는 것이 유용한 경우가 많다. 그러나, condition이 true가 될 때까지 그냥 spin만 하는 것은 CPU cycle을 낭비하게 되고 이것은 부정확할 수 있다.
+
+#prompt(```c
+volatile int done = 0;
+void *child(void *arg) {
+    printf("child\n");
+    done = 1;
+    return NULL;
+}
+int main(int argc, char *argv[]) {
+    pthread_t c;
+    printf("parent: begin\n");
+    pthread_create(&c, NULL, child, NULL); // create child
+    while (done == 0); // spin
+    printf("parent: end\n");
+    return 0;
+}
+```)
+
+== Condition Variable
+- condition 변수는 명시적인 대기열과도 같다.
+    - 스레드는 일부 상태(즉, 일부 condition)가 원하는 것과 다를 때 대기열에 들어갈 수 있다.
+    - 몇몇 스레드는 상태가 변경되면, 대기열에 있는 스레드 중 하나(또는 그 이상)를 깨워 진행되도록 할 수 있다.
+    - `pthread_cond_wait();`
+        - 스레드가 자신을 sleep 상태로 만들려고 할 때 사용
+            - lock을 해제하고 호출한 스레드를 sleep 상태로 만든다. (atomic하게)
+            - 스레드가 깨어나면 반환하기 전에 lock을 다시 얻는다.
+    - `pthread_cond_signal();`
+        - 스레드가 프로그램에서 무언가를 변경하여 sleep 상태인 스레드를 깨우려고 할 때 사용
+
+#prompt(```c
+int done = 0;
+pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t c = PTHREAD_COND_INITIALIZER;
+
+void *child(void *arg) {
+    printf("child\n");
+    thr_exit();
+    return NULL;
+}
+
+int main(int argc, char *argv[]) {
+    pthread_t p;
+    printf("parent: begin\n");
+    pthread_create(&p, NULL, child, NULL);
+    thr_join();
+    printf("parent: end\n");
+    return 0;
+}
+```)
+
+#prompt(```c
+void thr_exit() {
+    pthread_mutex_lock(&m);
+    done = 1;
+    pthread_cond_signal(&c);
+    pthread_mutex_unlock(&m);
+}
+
+void thr_join() {
+    pthread_mutex_lock(&m);
+    while (done == 0)
+        pthread_cond_wait(&c, &m);
+    pthread_mutex_unlock(&m);
+}
+```)
+
+- 만약 여기서 상태 변수인 `done`이 없으면?
+    - child가 바로 실행되고 thr_exit()을 호출하면?
+        - child가 signal을 보내지만 그 상태에서 잠들어 있는 스레드가 없다.
+- 만약 lock이 없다면?
+    - child가 parent가 wait을 실행하기 직전에 signal을 보내면?
+        - waiting 상태에 있는 스레드가 없으므로 깨어나는 스레드가 없다.
+
+=== Producer / Consumer Problem
+- Producers
+    - 데이터를 생성하고 그들을 (제한된) 버퍼에 넣는다.
+- Consumers
+    - 버퍼에서 데이터를 가져와서 그것을 소비한다.
+- 예시 
+    - Pipe
+        - `grep foo file.txt | wc -l`
+    - Web server
+- 제한된 버퍼가 공유 자원이기에 당연히 이에 대한 동기화된 접근이 필요하다.
+
+#prompt(```c
+int buffer; // single buffer
+int count = 0; // initially, empty
+void put(int value) {
+    assert(count == 0);
+    count = 1;
+    buffer = value;
+}
+int get() {
+    assert(count == 1);
+    count = 0;
+    return buffer;
+}
+```)
+
+#prompt(```c
+cond_t cond;
+mutex_t mutex;
+void *producer(void *arg) {
+    int i;
+    for (i = 0; i < loops; i++) {
+        pthread_mutex_lock(&mutex); // p1
+        if (count == 1) // p2
+            pthread_cond_wait(&cond, &mutex); // p3
+        put(i); // p4
+        pthread_cond_signal(&cond); // p5
+        pthread_mutex_unlock(&mutex); // p6
+    }
+}
+```)
+
+#prompt(```c
+void *consumer(void *arg) {
+    int i;
+    for (i = 0; i < loops; i++) {
+        pthread_mutex_lock(&mutex); // c1
+        if (count == 0) // c2
+            pthread_cond_wait(&cond, &mutex); // c3
+        int tmp = get(); // c4
+        pthread_cond_signal(&cond); // c5
+        pthread_mutex_unlock(&mutex); // c6
+        printf("%d\n", tmp);
+    }
+}
+```)
+
+- 단일 producer와 단일 consumer로 진행한다고 하자. 
+
+#img("image-8")
+
+- 위 그림에서 알 수 있듯이 $T_(c 1)$가 다시 깨어나 실행될 때 state가 여전히 원하던 값이라는 보장이 없다.
+- count를 체크하는 부분을 if문에서 while문으로 바꾸어주면 아래와 같이 돌아간다.
+
+#img("image-9")
+
+- consumer는 다른 consumer를 깨우면 안 되고, producer만 깨우면 되고, 반대의 경우도 마찬가지이다. 위의 경우는 그것이 안 지켜져서 모두가 잠들어버린 상황이다.
+- 이는 condition 변수를 하나를 사용하기에 발생하는 문제이다. (같은 큐에 잠들기에 producer를 깨우고자 했으나 다른 결과를 야기할 수 있음)
+    - `p3`의 cv를 `&empty`로 `c5`의 cv를 `&full`로 바꾸어주면 해결된다.
+
+#prompt(```c
+int buffer[MAX];
+int fill_ptr = 0;
+int use_ptr = 0;
+int count = 0;
+
+void put(int value) {
+    buffer[fill_ptr] = value;
+    fill_ptr = (fill_ptr + 1) % MAX;
+    count++;
+}
+
+int get() {
+    int tmp = buffer[use_ptr];
+    use_ptr = (use_ptr + 1) % MAX;
+    count--;
+    return tmp;
+}
+```)
+
+- 이와 같이 버퍼를 만들고 producer에서 `count == MAX`로 바꾸어주면 동시성과 효율성을 챙길 수 있다.
+
+- Covering Conditions
+    - `pthread_cond_broadcast()`
+        - 대기 중인 모든 스레드를 깨운다.
+
+= 18-Semaphores
+- 세마포어는 lock이나 condition 변수를 통해 사용할 수 있다.
+- POSIX Semaphores
+    - `int sem_init(sem_t *s, int pshared, unsigned int value);`
+        - pshared가 0이면 프로세스 내에서만 사용 가능하고, 1이면 프로세스 간에도 사용 가능하지만, 공유 메모리에 있어야 한다.
+    - `int sem_wait(sem_t *s);`
+        - 세마포어 값을 감소시키고, 값이 0보다 작으면 대기한다.
+    - `int sem_post(sem_t *s);`
+        - 세마포어 값을 증가시킨다.
+        - 만약 대기 중인 스레드가 있다면 하나를 깨운다.
+- Binary Semaphores (lock이랑 비슷함)
+#prompt(```c
+sem_t m;
+sem_init(&m, 0, 1);
+
+sem_wait(&m);
+// critical section here
+sem_post(&m);
+```)
+
+#img("image-10")
+
+- Semaphores for Ordering
+세마포어를 사용해 스레드간의 순서를 정할 수 있다.
+
+#prompt(```c
+sem_t s;
+void * child(void *arg) {
+    printf("child\n");
+    sem_post(&s);
+    return NULL;
+}
+int main(int argc, char *argv[]) {
+    pthread_t c;
+    sem_init(&s, 0, X); // what should X be?
+    printf("parent: begin\n");
+    pthread_create(&c, NULL, child, NULL);
+    sem_wait(&s);
+    printf("parent: end\n");
+    return 0;
+}
+```)
+
+- X는 0이어야 한다. 그래야 다음 `sem_wait`이 바로 실행되더라도 세마포어 값이 음수가 되며 잠들 수 있고, child가 먼저 실행되어 post를 실행하여 세마포어 값이 1이 되고 `sem_wait`가 실행되더라도 잠에 들지 않아 deadlock이 발생하지 않는다.
+
+#img("image-11")
+
+== Producer / Consumer Problem
+
+#prompt(```c
+int buffer[MAX]; // bounded buffer
+int fill = 0;
+int use = 0;
+
+void put(int value) {
+    buffer[fill] = value;
+    fill = (fill + 1) % MAX;
+}
+
+int get() {
+    int tmp = buffer[use];
+    use = (use + 1) % MAX;
+    return tmp;
+}
+
+sem_t empty, sem_t full;
+void *producer(void *arg) {
+    int i;
+    for (i = 0; i < loops; i++) {
+        sem_wait(&empty);
+        put(i);
+        sem_post(&full);
+    }
+}
+
+void *consumer(void *arg) {
+    int i, tmp = 0;
+    while (tmp != -1) {
+        sem_wait(&full);
+        tmp = get();
+        sem_post(&empty);
+        printf("%d\n", tmp);
+    }
+}
+
+int main(int argc, char *argv[]) {
+    // ...
+    sem_init(&empty, 0, MAX); // MAX are empty
+    sem_init(&full, 0, 0); // 0 are full
+    // ...
+}
+```)
+
+- Race Condition이 발생한다.
+    - 생산자와 소비자가 여럿인 경우 `put()`과 `get()`에서 race condition이 발생한다.
+
+#prompt(```c
+void *producer(void *arg) {
+    int i;
+    for (i = 0; i < loops; i++) {
+        sem_wait(&mutex); // 2
+        sem_wait(&empty);
+        put(i);
+        sem_post(&full);
+        sem_post(&mutex);
+    }
+}
+void *consumer(void *arg) {
+    int i;
+    for (i = 0; i < loops; i++) {
+        sem_wait(&mutex);
+        sem_wait(&full); // 1
+        int tmp = get();
+        sem_post(&empty);
+        sem_post(&mutex);
+    }
+}
+```)
+
+- 이렇게 mutex를 추가하면 deadlock이 발생한다.
+    - 소비자가 먼저 실행되어 wait에 의해 mutex를 0으로 감소시키고 1까지 실행되어 sleep을 하게 된다.
+    - 생산자가 실행되고, wait에 의해 mutex가 -1이 되어 잠들게 된다.
+    - 둘 다 잠들어버리게 되어 deadlock이 발생한다.
+- *mutex를 모두 안쪽으로 옮겨주면 해결된다.* 
+
+== Reader / Writer Locks
+- Reader 
+    - `rwlock_acquire_readlock()`
+    - `rwlock_release_readlock()`
+- Writer
+    - `rwlock_acquire_writelock()`
+    - `rwlock_release_writelock()`
+
+#prompt(```c
+typedef struct _rwlock_t {
+    // binary semaphore (basic lock)
+    sem_t lock;
+    // used to allow ONE writer or MANY readers
+    sem_t writelock;
+    // count of readers reading in critical section
+    int readers;
+} rwlock_t;
+
+void rwlock_init(rwlock_t *rw) {
+    rw->readers = 0;
+    sem_init(&rw->lock, 0, 1);
+    sem_init(&rw->writelock, 0, 1);
+}
+
+void rwlock_acquire_writelock(rwlock_t *rw) {
+    sem_wait(&rw->writelock);
+}
+
+void rwlock_release_writelock(rwlock_t *rw) {
+    sem_post(&rw->writelock);
+}
+
+void rwlock_acquire_readlock(rwlock_t *rw) {
+    sem_wait(&rw->lock);
+    rw->readers++;
+    if (rw->readers == 1)
+        // first reader acquires writelock
+        sem_wait(&rw->writelock);
+    sem_post(&rw->lock);
+}
+
+void rwlock_release_readlock(rwlock_t *rw) {
+    sem_wait(&rw->lock);
+    rw->readers--;
+    if (rw->readers == 0)
+        // last reader releases writelock
+        sem_post(&rw->writelock);
+    sem_post(&rw->lock);
+}
+```)
+
+- reader에게 유리함 (writer가 굶을 수 있음)
+
+== How To Implement Semaphores
+#prompt(```c
+typedef struct __Sem_t {
+    int value;
+    pthread_cond_t cond;
+    pthread_mutex_t lock;
+} Sem_t;
+
+// only one thread can call this
+void Sem_init(Sem_t *s, int value) {
+    s->value = value;
+    Cond_init(&s->cond);
+    Mutex_init(&s->lock);
+}
+
+void Sem_wait(Sem_t *s) {
+    Mutex_lock(&s->lock);
+    while (s->value <= 0)
+        Cond_wait(&s->cond, &s->lock);
+    s->value--;
+    Mutex_unlock(&s->lock);
+}
+
+void Sem_post(Sem_t *s) {
+    Mutex_lock(&s->lock);
+    s->value++;
+    Cond_signal(&s->cond);
+    Mutex_unlock(&s->lock);
+}
+```)
+
+- 원래 구현: 값이 음수인 경우 대기 중인 스레드의 수를 반영
+- Linux: 값은 0보다 낮아지지 않음
