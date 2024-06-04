@@ -1009,3 +1009,505 @@ void Sem_post(Sem_t *s) {
 
 - 원래 구현: 값이 음수인 경우 대기 중인 스레드의 수를 반영
 - Linux: 값은 0보다 낮아지지 않음
+
+= 19-Common Concurrency Problems
+== Concurrency Problems
+    - Non-deadlock 버그
+        - Atomicity 위반
+        - 순서 위반
+    - deadlock bug
+
+=== Atomicity-Violation
+- 메모리 영역에 대해 여러 개의 스레드가 동시에 접근할 때 serializable 해서 race condition이 발생하지 않을 것이라 예상하지만 그렇지 않은 경우가 있다.
+
+- MySQL 버그
+#prompt(```c
+Thread 1:
+if (thd->proc_info) {
+    ...
+    fputs(thd->proc_info, ...);
+    ...
+}
+
+Thread 2:
+thd->proc_info = NULL;
+```)
+
+- Thread 1의 if문을 확인하고 들어왔으나 Thread 2가 값을 NULL로 바꾸어버리면서 fputs에서 비정상 종료가 된다.
+
+- 해결 방법
+#prompt(```c
+pthread_mutex_t proc_info_lock = PTHREAD_MUTEX_INITIALIZER;
+
+Thread 1:
+pthread_mutex_lock(&proc_info_lock);
+if (thd->proc_info) {
+    ...
+    fputs(thd->proc_info, ...);
+    ...
+}
+pthread_mutex_unlock(&proc_info_lock);
+
+Thread 2:
+pthread_mutex_lock(&proc_info_lock);
+thd->proc_info = NULL;
+pthread_mutex_unlock(&proc_info_lock);
+```)
+
+=== Order-Violation
+- A -> B 스레드 순서로 실행되기를 바랬으나 다르게 실행되는 경우
+
+- Mozilla 버그
+#prompt(```c
+Thread 1:
+void init() {
+    ...
+    mThread = PR_CreateThread(mMain, ...);
+    ...
+}
+Thread 2:
+void mMain(...) {
+    ...
+    mState = mThread->State;
+    ...
+}
+```)
+
+- Thread 2가 생성되자마자 mState를 읽어버리면서 mThread가 초기화되기 전에 읽어버리는 문제가 발생한다. (Null 포인터를 접근하게 됨)
+
+- 해결 방법
+#prompt(```c
+pthread_mutex_t mtLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t mtCond = PTHREAD_COND_INITIALIZER;
+int mtInit = 0;
+
+Thread 1:
+void init() {
+    ...
+    mThread = PR_CreateThread(mMain, ...);
+
+    // signal that the thread has been created...
+    pthread_mutex_lock(&mtLock);
+    mtInit = 1;
+    pthread_cond_signal(&mtCond);
+    pthread_mutex_unlock(&mtLock);
+    ...
+}
+
+Thread 2:
+void mMain(...) {
+    ...
+    // wait for the thread to be initialized...
+    pthread_mutex_lock(&mtLock);
+    while (mtInit == 0)
+        pthread_cond_wait(&mtCond, &mtLock);
+    pthread_mutex_unlock(&mtLock);
+    mState = mThread->State;
+    ...
+}
+```)
+
+=== Deadlock Bugs
+- Circular Dependencies
+
+#prompt(```c
+Thread 1:
+pthread_mutex_lock(L1);
+pthread_mutex_lock(L2);
+Thread 2:
+pthread_mutex_lock(L2);
+pthread_mutex_lock(L1);
+```)
+
+#img("image-12", width:50%)
+
+- Thread 1은 L1을 먼저 잡고, Thread 2는 L2를 먼저 잡은 상태에서 서로를 기다리게 되어 deadlock이 발생한다.
+
+- 왜 deadlock이 발생할까?
+    - 큰 코드 베이스에서는 컴포넌트 간의 의존성이 복잡함
+    - 캡슐화의 특징
+        - `Vector v1, v2`
+        - `Thread 1: v1.addAll(v2)`
+        - `Thread 2: v2.addAll(v1)`
+
+=== Conditions for Deadlock
+- Mutual Exclusion
+    - 한 번에 하나의 스레드만이 자원을 사용할 수 있음
+- Hold and Wait
+    - 스레드가 자원을 가지고 있는 상태에서 다른 자원을 기다림
+- No Preemption
+    - 스레드가 자원을 강제로 뺏을 수 없음
+- Circular Wait
+    - 스레드 A가 스레드 B가 가지고 있는 자원을 기다리고, 스레드 B가 스레드 A가 가지고 있는 자원을 기다림
+
+==== Deadlock Prevention
+- Circular Wait
+    - lock acqustition 순서를 정함
+- Hold and Wait
+    - 모든 자원을 한 번에 요청 (전체를 lock으로 한 번 감싸기)
+    - critical section이 커지는 문제가 발생할 수 있었음
+    - 미리 lock을 알아야 함
+#prompt(```c
+pthread_mutex_lock(prevention); // begin lock acquisition
+pthread_mutex_lock(L1);
+pthread_mutex_lock(L2);
+...
+pthread_mutex_unlock(prevention); // end
+```)
+
+- No Preemption
+    - `pthread_mutex_trylock()`: lock을 얻을 수 없으면 바로 반환
+    - 아래처럼 구현하면 livelock(deadlock처럼 모든 스레드가 lock을 얻지 못하고 멈췄는데, 코드는 돌아가고 있는 상태)이 발생할 수 있음
+        - random delay를 추가해 누군가는 acquire에 성공하도록 할 수 있음
+    - 획득한 자원이 있다면 반드시 해제해야 함
+        - lock이나 메모리...
+#prompt(```c
+top:
+pthread_mutex_lock(L1);
+if (pthread_mutex_trylock(L2) != 0) {
+    pthread_mutex_unlock(L1);
+    goto top;
+}
+```)
+
+- Mutual Exclusion
+    - race condition을 없애기 위해 mutual exclusion을 사용함
+    - 그런데 이거를 없애야 하나? (X) -> lock을 안 쓴다는 것으로 이해하면 됨
+    - lock free 접근법 (atomic operation을 이용)
+
+#prompt(```c
+int CompareAndSwap(int *address, int expected, int new) {
+    if (*address == expected) {
+        *address = new;
+        return 1; // success
+    }
+    return 0; // failure
+}
+
+void AtomicIncrement(int *value, int amount) {
+    do {
+        int old = *value;
+    } while (CompareAndSwap(value, old, old + amount) == 0);
+}
+```)
+
+#prompt(```c
+void insert(int value) {
+    node_t *n = malloc(sizeof(node_t));
+    assert(n != NULL);
+    n->value = value;
+    n->next = head;
+    head = n;
+}
+
+void insert(int value) {
+    node_t *n = malloc(sizeof(node_t));
+    assert(n != NULL);
+    n->value = value;
+    pthread_mutex_lock(listlock);
+    n->next = head;
+    head = n;
+    pthread_mutex_unlock(listlock);
+}
+
+void insert(int value) {
+    node_t *n = malloc(sizeof(node_t));
+    assert(n != NULL);
+    n->value = value;
+    do {
+        n->next = head;
+    } while (CompareAndSwap(&head, n->next, n) == 0);
+}
+```)
+
+= I/O Devices and HDD
+== System Architecture
+    - CPU / Main Memory 
+    - (Memory Bus)
+    - (General I/O Bus(PCI))
+    - Graphics
+    - (주변기기 I/O Bus(SCSI, SATA, USB))
+    - HDD
+== I/O Devices
+    - 인터페이스
+        - 시스템 소프트웨어로 작동을 제어할 수 있도록 함
+        - 모든 장치는 일반적인 상호작용을 위한 특정 인터페이스와 프로토콜이 있음
+    - 내부 구조
+        - 시스템에 제공하는 추상화된 구현
+#img("image-13")
+== Interrupts
+- Interrupt로 CPU 오버헤드를 낮춤
+    - 장치를 반복적으로 polling 하는 대신 OS 요청을 날리고, 호출한 프로세스를 sleep 상태로 만들고 다른 작업으로 context switch를 함
+    - 장치가 최종적으로 작업을 마치면 하드웨어 interrupt를 발생시켜 CPU가 미리 결정된 interrupt service routine(ISR)에서 OS로 넘어가게 함
+- Interrupts는 I/O 연산을 하는 동안 CPU를 다른 작업에 사용할 수 있게 함
+== Direct Memory Access (DMA)
+- DMA를 사용하면 더 효율적인 데이터 이동을 할 수 있다.
+    - DMA 엔진은 CPU 개입 없이 장치와 주메모리 간의 전송을 조율할 수 있는 장치이다.
+    - OS는 데이터가 메모리에 있는 위치와 복사할 위치를 알려주어 DMA 엔진을 프로그래밍한다.
+    - DMA가 완료되면 DMA 컨트롤러는 interrupt를 발생시킨다.
+#img("image-14")
+== Methods of Device Interaction
+- I/O instructions
+    - `in` / `out` (x86)
+    - 장치에 데이터를 보내기 위해 호출자는 데이터가 포함된 레지스터와 장치 이름을 지정하는 특정 포트를 지정한다.
+    - 일반적으로 privileged instruction이다.
+- Memory-mapped I/O
+    - 하드웨어는 마치 메모리 위치인 것처럼 장치 레지스터를 사용할 수 있게 만든다.
+    - 특정 레지스터에 접근하기 위해 OS는 주소를 읽거나 쓴다.
+
+#img("image-15")
+== HDD
+- 기본 요소
+    - Platter
+        - 데이터가 지속적으로 저장되는 원형의 단단한 표면
+        - 디스크는 하나 또는 그 이상의 platters를 가진다. 각 platter는 `surface`라고 불리는 두 면을 가진다.
+    - Spindle
+        - platters를 일정한 속도로 회전시키는 모터를 연결
+        - 회전 속도는 RPM으로 측정된다. (7200 ~ 15000 RPM)
+    - Track
+        - 데이터는 각 구역(sector)의 동심원으로 각 표면에 인코딩된다. (512-byte blocks)
+    - Disk head and disk arm
+        - 읽기 및 쓰기는 디스크 헤드에 의해 수행된다. 드라이브 표면 당 하나의 헤드가 있다.
+        - 디스크 헤드는 단일 디스크 암에 부착되어 표면을 가로질러 이동하여 원하는 track 위에 헤드를 배치한다.
+
+#img("image-16")
+=== I/O Time
+$T_(I \/ O) = T_("seek") + T_("rotation") + T_("transfer")$
+
+- Seek time 
+    - 디스크 암을 올바른 트랙으로 옮기는데 걸리는 시간
+- Rotational delay
+    - 디스크가 올바른 섹터로 회전하는데 걸리는 시간
+=== Disk Scheduling
+- OS가 디스크로 날릴 I/O 요청들의 순서를 결정한다.
+    - I/O 요청의 집합이 주어지면, 디스크 스케줄러는 요청을 검사하고 다음에 무엇을 실행해야 하는지 결정한다.
+
+- 요청: 98, 183, 37, 122, 14, 124, 65, 67 (Head: 53)
+    - *FCFS (First Come First Serve)*
+        - 98 -> 183 -> 37 -> 122 -> 14 -> 124 -> 65 -> 67
+    - *Elevator (SCAN or C-SCAN)*
+        - *SCAN*: 맨 앞으로 가면서 훑고 다시 순차로 가는 방식
+            - 37 -> 14 -> 65 -> 67 -> 98 -> 122 -> 124 -> 183
+        - *C-SCAN*: 현 위치부터 뒤로 쭉 가서 앞으로 나오는 원형 방식
+            - 655 -> 67 -> 98 -> 122 -> 124 -> 183 -> 14 -> 37
+    - *SPTF (Shortest Positioning Time First)*
+        - track과 sector를 고려하여 가장 가까운 것을 먼저 처리
+        - 현대 드라이브는 seek과 rotation 비용이 거의 동일하다.
+        - 아래 그림에서 rotation이 중요하면 8을 먼저 접근함 (디스크의 하드웨어 특성에 따라 달라짐)
+
+#img("image-17", width: 70%)
+
+= 21-Assignment 2: KURock 
+= 22-Files and Directions
+== Abstractions for Storage
+- 파일
+    - bytes의 선형 배열
+    - 각 파일은 low-level 이름을 가지고 있음 (`inode`)
+    - OS는 파일의 구조에 대해 별로 알지 못함 (그 파일이 사진인지, 텍스트인지, C인지)
+- 디렉토리
+    - (user-readable name, low-level name)쌍의 리스트를 포함한다.
+    - 디렉토리 또한 low-level 이름을 가지고 있음 (`inode`)
+#img("image-18")
+== Interface
+=== Creating
+- `O_CREAT`를 같이 사용한 `open()` system call
+
+    #prompt(```c int fd = open("foo", O_CREAT|O_WRONLY|O_TRUNC, S_IRUSR|S_IWUSR);```)
+    - `O_CREAT`: 파일이 없으면 생성
+    - `O_WRONLY`: 쓰기 전용
+    - `O_TRUNC`: 파일이 이미 존재하면 비우기
+    - `S_IRUSR | S_IWUSR`: 파일 권한 (user에 대한 읽기, 쓰기 권한)
+
+- File descriptor
+    - An integer
+        - 파일을 읽거나 쓰기 위해 file descriptor 사용(그 작업을 할 수 있는 권한이 있다고 가정)
+        - 파일 형식 객체를 가리키는 포인터라고 생각할 수 있음
+    - 각 프로세스끼리 독립적이다. (private하다)
+        - 각 프로세스는 file descriptors의 리스트를 유지함 (각각은 system-wide하게 열린 파일 테이블에 있는 항목을 가리킨다)
+
+=== Accessing
+==== Sequential
+#prompt(```bash
+prompt> echo hello > foo
+prompt> cat foo
+hello
+prompt>
+```)
+
+#prompt(```bash
+prompt> strace cat foo
+...
+open("foo", O_RDONLY|O_LARGEFILE) = 3
+read(3, "hello\n", 4096) = 6
+write(1, "hello\n", 6) = 6
+hello
+read(3, "", 4096) = 0
+close(3) = 0
+...
+prompt> 
+```)
+
+- `strace`는 프로그램이 실행되는 동안 만드는 모든 system call 을 추적한다. 그리고 그 결과를 화면에 보여준다.
+- file descriptors 0, 1, 2는 각각 stdin, stdout, stderr를 가리킨다.
+==== Random
+- OS는 "현재" offset을 추적한다.
+    - 다음 읽기 또는 쓰기가 어디서 시작할지는 파일을 읽고 있는 혹은 쓰고 있는 것이 결정한다.
+- 암묵적인 업데이트 
+    - 해당 위치에서 $N$바이트를 읽거나 쓰면 현재 offset에 $N$만큼 추가된다.
+- 명시적인 업데이트
+    - `off_t lseek(int fd, off_t offset, int whence);`
+        - `whence`
+            - `SEEK_SET`: 파일의 시작부터
+            - `SEEK_CUR`: 현재 위치부터
+            - `SEEK_END`: 파일의 끝부터
+    - 임의로 offset의 위치를 변경할 수 있다.
+==== Open File Table
+- 시스템에서 현재 열린 모든 파일을 보여준다.
+    - 테이블의 각 항목은 descriptor가 참조하는 기본 파일, 현재 offset 및 파일 권한과 같은 기타 관련 정보를 추적한다.
+- 파일은 기본적으로 open 파일 테이블에 고유한 항목을 가지고 있다.
+    - 다른 프로세스가 동시에 동일한 파일을 읽는 경우에도 각 프로세스는 open 파일 테이블에 자체적인 항목을 갖는다.
+    - 파일의 논리적 읽기 또는 쓰기는 각각 독립적이다.
+==== Shared File Entries
+- `fork()`로 file entry 공유
+#prompt(```c
+int main(int argc, char *argv[]) {
+    int fd = open("file.txt", O_RDONLY);
+    assert(fd >= 0);
+    int rc = fork();
+    if (rc == 0) {
+        rc = lseek(fd, 10, SEEK_SET);
+        printf(“C: offset % d\n", rc);
+    }
+    else if (rc > 0) {
+        (void)wait(NULL);
+        printf(“P: offset % d\n", (int) lseek(fd, 0, SEEK_CUR));
+    }
+    return 0;
+}
+```)
+
+#prompt(```bash
+prompt> ./fork-seek
+child: offset 10
+parent: offset 10
+prompt>
+```)
+
+#img("image-19")
+
+- `dup()`으로 file entry 공유
+    - `dup()`은 프로세스가 기존 descriptor와 동일한 open file을 참조하는 새 file descriptor를 생성한다.
+        - 새 file descriptor에 대해 가장 작은 사용되지 않는 file descriptor를 사용해 file descriptor의 복사본을 만든다.
+    - output redirection에 유용함
+
+        #prompt(```bash
+        int fd = open(“output.txt", O_APPEND|O_WRONLY);
+            close(1);
+        dup(fd); //duplicate fd to file descriptor 1
+        printf(“My message\n");
+        ```)
+    - `dup2()`, `dup3()`
+
+==== Writing Immediately
+- `write()`
+    - 파일 시스템은 한동안 쓰기 작업을 하는 것을 버퍼에 집어넣고, 나중에 특정 시점에 쓰기가 디스크에 실제로 실행된다. 
+- `fsync()`
+    - 파일 시스템이 모든 dirty 데이터(아직 쓰이지 않은)를 강제로 디스크에 쓴다.
+
+=== Removing
+- `unlink()`
+=== Functions
+- `mkdir()`
+    - 디렉토리를 생성할 때, 빈 디렉토리를 생성한다.
+    - 기본 항목
+        - `.`: 현재 디렉토리
+        - `..`: 상위 디렉토리
+        - `ls -a`로 확인하면 위 2개가 나옴
+- `opendir()`, `readdir()`, `closedir()`
+    
+    #prompt(```c
+    int main(int argc, char *argv[]) {
+        DIR *dp = opendir(".");
+        struct dirent *d;
+        while ((d = readdir(dp)) != NULL) {
+            printf("%lu %s\n", (unsigned long)d->d_ino, d->d_name);
+        }
+        closedir(dp);
+        return 0;
+    }
+    ```)
+
+    #prompt(```c 
+    struct dirent {
+        char d_name[256]; // filename
+        ino_t d_ino; // inode number
+        off_t d_off; // offset to the next dirent
+        unsigned short d_reclen; // length of this record
+        unsigned char d_type; // type of file
+    };
+    ```)
+- `rmdir()`
+    - 빈 디렉토리를 삭제한다.
+        - 빈 디렉토리가 아니면 삭제되지 않는다.
+- `ln` command, `link()` system call (Hard Links)
+
+    #prompt(```bash
+    prompt> echo hello > file
+    prompt> cat file
+    hello
+    prompt> ln file file2
+    prompt> cat file2
+    hello
+    prompt> ls -i file file2
+    67158084 file
+    67158084 file2
+    prompt>
+    ```)
+    - 디렉토리에 다른 이름을 생성하고 그것이 원본 파일의 같은 `inode`를 가리키게 한다.
+
+- `rm` command, `unlink()` system call 
+
+    #prompt(```bash
+    prompt> rm file
+    removed ‘file’
+    prompt> cat file2
+    hello
+    ```)
+    - user-readable name와 inode number 사이의 link를 제거한다.
+    - reference count를 감소시키고 0이 되면 파일이 삭제된다.
+
+== Mechanisms for Resource Sharing
+- 프로세스의 추상화 
+    - CPU 가상화 -> private CPU 
+    - 메모리 가상화 -> private memory
+- 파일 시스템 
+    - 디스크 가상화 -> 파일과 디렉토리 
+    - 파일들은 일반적으로 다른 유저 및 프로세스와 공유되므로 private하지 않다. 
+    - Permission bits 
+
+=== Permission Bits 
+#prompt(```bash
+prompt> ls -l foo.txt
+-rw-r--r-- 1 remzi wheel 0 Aug 24 16:29 foo.txt
+```)
+- 파일의 타입 
+    - `-`: 일반 파일
+    - `d`: 디렉토리
+    - `l`: symbolic link
+- Permission bits
+    - owner, group, other 순서로 읽기, 쓰기, 실행 권한을 나타낸다.
+    - `r`: 읽기
+    - `w`: 쓰기
+    - `x`: 실행
+    - 디렉토리의 경우 `x` 권한을 주면 사용자가 디렉토리 변경(`cd`)로 특정 디렉토리로 이동할 수 있다.
+=== Making a File System
+- `mkfs` command 
+    - 해당 디스크 파티션에 루트 디렉토리부터 시작하여 빈 파일 시스템을 만든다.
+    #prompt(```bash mkfs.ext4 /dev/sda1```)
+    - 균일한 파일 시스템 트리 내에서 접근 가능해야 한다.
+
+=== Mounting a File System
+- `mount` command 
+    - 기존 디렉토리를 대상 마운트 지점으로 사용하고, 기본적으로 해당 지점의 디렉토리 트리에 새로운 파일 시스템을 연결한다.
+    #prompt(```bash mount -t ext4 /dev/sda1 /home/users```)
+    - 경로 `/home/users`는 이제 새롭게 마운트된 파일 시스템의 루트를 가리킨다.
