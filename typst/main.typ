@@ -316,6 +316,8 @@ void unlock(lock_t *lock) {
 }
 ```)
 
+- fairness 하게 됨
+
 === OS Support
 - spin을 하는 대신 sleep을 함
 - Solaris
@@ -426,7 +428,7 @@ int get(counter_t *c) {
     return rc;
 }
 ```)
-- 간단하게 생각해보면 이렇게 구현할 수 있을 것이다. 그러나 매 count마다 lock 을 걸어줘야 하므로 concurrency가 떨어진다.
+- 간단하게 생각해보면 이렇게 구현할 수 있을 것이다. 그러나 매 count마다 lock을 걸어줘야 하므로 concurrency가 떨어진다.
 
 === Sloppy Counters
 - Logical counter
@@ -1220,7 +1222,7 @@ void insert(int value) {
 }
 ```)
 
-= I/O Devices and HDD
+= 20-I/O Devices and HDD
 == System Architecture
     - CPU / Main Memory 
     - (Memory Bus)
@@ -1263,7 +1265,7 @@ void insert(int value) {
         - 디스크는 하나 또는 그 이상의 platters를 가진다. 각 platter는 `surface`라고 불리는 두 면을 가진다.
     - Spindle
         - platters를 일정한 속도로 회전시키는 모터를 연결
-        - 회전 속도는 RPM으로 측정된다. (7200 ~ 15000 RPM)
+        - 회전 속도는 RPM으로 측정된다. (7200 \~ 15000 RPM)
     - Track
         - 데이터는 각 구역(sector)의 동심원으로 각 표면에 인코딩된다. (512-byte blocks)
     - Disk head and disk arm
@@ -1289,7 +1291,7 @@ $T_(I \/ O) = T_("seek") + T_("rotation") + T_("transfer")$
         - *SCAN*: 맨 앞으로 가면서 훑고 다시 순차로 가는 방식
             - 37 -> 14 -> 65 -> 67 -> 98 -> 122 -> 124 -> 183
         - *C-SCAN*: 현 위치부터 뒤로 쭉 가서 앞으로 나오는 원형 방식
-            - 655 -> 67 -> 98 -> 122 -> 124 -> 183 -> 14 -> 37
+            - 65 -> 67 -> 98 -> 122 -> 124 -> 183 -> 14 -> 37
     - *SPTF (Shortest Positioning Time First)*
         - track과 sector를 고려하여 가장 가까운 것을 먼저 처리
         - 현대 드라이브는 seek과 rotation 비용이 거의 동일하다.
@@ -1400,9 +1402,9 @@ prompt>
         - 새 file descriptor에 대해 가장 작은 사용되지 않는 file descriptor를 사용해 file descriptor의 복사본을 만든다.
     - output redirection에 유용함
 
-        #prompt(```bash
+        #prompt(```c
         int fd = open(“output.txt", O_APPEND|O_WRONLY);
-            close(1);
+        close(1);
         dup(fd); //duplicate fd to file descriptor 1
         printf(“My message\n");
         ```)
@@ -1499,7 +1501,7 @@ prompt> ls -l foo.txt
     - `r`: 읽기
     - `w`: 쓰기
     - `x`: 실행
-    - 디렉토리의 경우 `x` 권한을 주면 사용자가 디렉토리 변경(`cd`)로 특정 디렉토리로 이동할 수 있다.
+    - 디렉토리의 경우 `x` 권한을 주면 사용자가 디렉토리 변경(`cd`)으로 특정 디렉토리로 이동할 수 있다.
 === Making a File System
 - `mkfs` command 
     - 해당 디스크 파티션에 루트 디렉토리부터 시작하여 빈 파일 시스템을 만든다.
@@ -1618,7 +1620,7 @@ prompt> ls -l foo.txt
     #img("image-27")
 - `close()`
     - file descriptor 할당을 해제한다. 
-    - dist I/O가 발생하지 않는다. 
+    - disk I/O가 발생하지 않는다. 
 
 #img("image-28")
 - `write()`
@@ -1632,10 +1634,10 @@ prompt> ls -l foo.txt
     #img("image-29")
 
 == Caching and Buffering 
-- 디스크에 많은 I/O가 있으면 파일 입출력은 비용이 클 수 있다. 
+- 디스크에 많은 I/O가 있으면 파일 입출력 비용이 클 수 있다. 
     - 파일을 열 때마다 디렉토리 계층 구조의 모든 level에 대해 최소 2번의 읽기가 필요하다.
-        - 하나는 쿼리를 한 디렉토리의 `inode`를 읽는 것에, 하나는 그것의 데이터를 최소 하나라도 읽어노느 것에 필요하다.
-- Page cach 
+        - 하나는 쿼리를 한 디렉토리의 `inode`를 읽는 것에, 하나는 그것의 데이터를 최소 하나라도 읽어놓는 것에 필요하다.
+- Page cache
     - 처음 open에는 디렉토리에 `inode`와 데이터를 읽는데 많은 I/O 트래픽을 생성할 수 있다. 
     - 동일한 파일(또는 동일한 디렉토리에 있는 파일)의 후속 파일을 열 때에는 대부분 캐시에 hit된다. 
 - Write buffering 
@@ -1655,10 +1657,10 @@ prompt> ls -l foo.txt
     - Journaling 
 - 예시
     #img("image-30")
-    - 기존 파일에 하나의 데이트 블럭을 추가하려고 한다. 
+    - 기존 파일에 하나의 데이터 블록을 추가하려고 한다. 
         - 파일을 연다
-        - `lseek()`로 file offset을 파일의 끝으로 옮긴다. 
-        - 그것을 닫기 전에 파일에 4KB 쓰기 작업을 하나 날린다. 
+        - `lseek()`으로 file offset을 파일의 끝으로 옮긴다. 
+        - 파일을 닫기 전에 파일에 4KB 쓰기 작업 하나를 요청한다. 
     #img("image-31")
     - Data bitmap, `inode`, data block을 쓴다. 
     - *충돌 시나리오 (오직 한 번의 쓰기만 성공한 경우)*
@@ -1672,7 +1674,7 @@ prompt> ls -l foo.txt
             - File-system inconsistency
     - *충돌 시나리오 (2번의 쓰기가 성공, 하나는 실패한 경우)*
         - `inode`와 bitmap이 쓰인 경우
-            - 파일 시스템의 메타데이터 관점에서는 괜찮아보이지만, 데이터 블록은 쓰레기 값이다.
+            - 파일 시스템의 메타데이터 관점에서는 괜찮아 보이지만, 데이터 블록은 쓰레기 값이다.
         - `inode`와 데이터 블록이 쓰인 경우
             - File-system inconsistency
         - bitmap과 데이터 블록이 쓰인 경우
@@ -1682,7 +1684,7 @@ prompt> ls -l foo.txt
     - 파일 시스템 불일치를 찾아 복구하기 위한 UNIX 도구
     - 불일치가 발생하도록 두고 나중에(재부팅 시) 수정한다.
         - 모든 문제를 고칠 순 없다. 
-        - 파일 시스템 메타데이터가 내부적으로 일관성을 유지하느지 확인하는 것이 목표이다. 
+        - 파일 시스템 메타데이터가 내부적으로 일관성을 유지하는지 확인하는 것이 목표이다. 
     - Superblock 
         - 먼저 superblock이 reasonable하게 보이는지 확인한다. 
     - Free blocks 
@@ -1725,34 +1727,34 @@ prompt> ls -l foo.txt
 === Data Journaling 
 #img("image-33")
 - journal 쓰기 
-    - 한 가지 간단한 방법은 한 번에 하나씩 issue를 하고 각각이 완료될 때까지 기다린 후 다음을 issue하는 것이다. 
+    - 한 가지 간단한 방법은 한 번에 하나씩 요청을 하고 각각이 완료될 때까지 기다린 후 다음을 요청하는 것이다. 
         - 느리다.
     - 한 번에 5개의 블록 쓰기를 모두 실행한다. 
-        - 디스크 스케줄링 -> 재정렬 
+        - 디스크 스케줄링 -> 재정렬 필요
         - journal을 쓰는 동안의 충돌
     #img("image-34")
-    - 2-step으로 트랜잭션 쓰기를 issue한다.
+    - 2-step으로 트랜잭션 쓰기를 요청한다.
         - Step 1: TxE 블록을 제외한 모든 블록을 쓴다.
-        - Step 2: Step 1이 완료되면, TxE 블록의 쓰기를 issue한다.
+        - Step 2: Step 1이 완료되면, TxE 블록의 쓰기를 요청한다.
     #img("image-35")
     - TxE 쓰기가 atomic하게 이루어지도록 하려면 이를 단일 512-byte 구간으로 만들어야 한다.
-        - 디스크는 512-byte 쓰기가 일어났는지 안 일어났는지를 보장한다. 
+        - 디스크는 512-byte 쓰기 작업 발생 여부를 보장한다.
 === Recovery
 - 만약 충돌이 트랜잭션이 로그에 안전하게 쓰이기 전에 일어나면?
-    - pending 업데이트는 간단히 무시된다.
-- 만약 충돌이 트랜잭션이 llog에 커밋된 후 체크포인드가 완성되기 전에 일어나면?
+    - pending 업데이트는 무시된다.
+- 만약 충돌이 트랜잭션이 log에 커밋된 후 체크포인트가 완성되기 전에 일어나면?
     - log를 읽어서 디스크에 커밋된 트랜잭션을 찾는다.
     - 트랜잭션이 (순서대로) 재생되어 트랜잭션의 블록을 디스크의 최종 위치에 쓰려고 시도한다. 
         - 일부 업데이트는 복구 중에 다시 중복 수행된다.
 === Batching Log Updates
-- 문제점: 추가적인 디스트 트래픽을 많이 발생시킬 수 있다.
+- 문제점: 추가적인 디스크 트래픽을 많이 발생시킬 수 있다.
     - 예: 같은 디렉토리에 두 개의 파일을 생성할 때
         - 만약 이 파일들의 `inode`들이 같은 `inode` 블록에 있으면 같은 블록을 계속해서 쓰게 된다.
 - 해결법: 버퍼링 업데이트
     - 파일 시스템은 일정 시간 동안 메모리에 업데이트를 버퍼링한다. (고의적인 딜레이를 주는 것)
     - 디스크에 대한 과도한 쓰기 트래픽을 방지할 수 있다. 
 === Making the Log Finite 
-- 문제점: 로그가 꽉 찼을 때
+- 문제점: 로그가 가득 찼을 때
     - 로그를 더 키우면, 복구에 더 많은 시간이 걸린다.
     - 더 이상 트랜잭션이 커밋될 수 없다.
 - 해결법: Cirular log 
@@ -1775,14 +1777,14 @@ prompt> ls -l foo.txt
     + Free 
 = 25-Log-Structured File Systems
 - 시스템 메모리가 늘어나고 있다. 
-    - 더 많은 데이터가 캐싱 됨에 따라 디스크 트래픽은 점점 더 쓰기로 구성되고 읽기는 캐시에 의해 처리된다.
+    - 더 많은 데이터가 캐싱 됨에 따라 디스크 트래픽은 점점 더 쓰기 작업으로 구성되고 읽기 작업은 캐시에 의해 처리된다.
 - 랜덤 I/O와 순차 I/O는 큰 성능적 차이가 있다. 
     - 그러나 탐색 및 회전 지연 비용은 천천히 감소해왔다. 
 - 기존 파일 시스템은 여러 일반적인 워크로드에서 제대로 작동하지 않는다. 
     - 예를 들어, 파일 시스템은 한 블록 크기의 새 파일을 생성하기 위해 많은 수의 쓰기 작업을 수행한다. 
 - *LFS*
     - 디스크에 쓸 때, LFS는 먼저 모든 업데이트(메타데이터 포함)를 in-memory 세그먼트에 버퍼링한다.
-    - 세그먼트가 가득 차면, 디스크의 사용되지 않은 부분에 하나의 긴 순차적 전송으로 디스크에 쓰인다.
+    - 세그먼트가 가득 차면, 디스크의 사용되지 않은 부분에 하나의 긴 순차적 전송으로 디스크에 쓴다.
         - 기존 데이터를 덮어쓰지 않고 항상 빈 위치에 세그먼트를 쓴다.
     - 최근 연구에 따르면 플래시 기반 SSD의 고성능을 위해서는 대규모 I/O가 필요하다.
         - LFS 스타일의 파일 시스템은 다음 수업에서 플래시 기반 SSD에도 탁월한 선택이 될 수 있다는 것을 보일 것이다.
@@ -1863,7 +1865,7 @@ prompt> ls -l foo.txt
         - Cold Segments
             - 죽은 블록이 몇 개 있을 수 있지만 나머지 내용은 비교적 안정적인 것
         - cold segment 먼저, hot segment 나중에
-== Crah Recovery
+== Crash Recovery
 - LFS가 디스크에 쓰는 동안 시스템 충돌이 일어나면 journaling을 다시 호출한다.
 - CR에 쓰는 동안 충돌이 일어나면 
     - LFS는 두 개의 CR을 유지하고 교대로 쓴다.
@@ -1892,7 +1894,7 @@ prompt> ls -l foo.txt
 - 디테일한 예제 
     - 8-bit 페이지, 4-page 블록
     #img("image-47")
-    - 블록에 있는 어떠한 페이지를 덮어쓰기 전에, 먼저 중요한 데이터는 또다른 블록에 복사해놓아야 한다. (덮어쓰려면 블록 단위로 erase를 진행해야 하기 때문)
+    - 블록에 있는 어떠한 페이지를 덮어쓰기 전에, 먼저 중요한 데이터는 다른 블록에 복사해놓아야 한다. (덮어쓰려면 블록 단위로 erase를 진행해야 하기 때문)
 - 기본 플래시 칩을 일반적인 저장 장치처럼 보이는 것으로 바꾸는 방법은 무엇일까?
 - SSD
     - 몇 개의 플래시 칩이 있다.
@@ -1945,7 +1947,7 @@ prompt> ls -l foo.txt
     - 1TB SSD에서 page가 4KB이고 각 엔트리가 4B인 경우 
         - 매핑을 위해 1GB 메모리가 필요하다. (1TB / 4KB x 4B = 1GB)
         - 페이지 단위 FTL 체계는 실용적이지 않다.
-    - BLock-based 매핑
+    - Block-based 매핑
         - 페이지 단위가 아닌 장치의 블록 단위로만 포인터를 유지한다.
         - 논리 블록 주소: #text("chunk number", fill: blue) + #text("offset", fill: red) (4개의 페이지로 구성되어 있으므로 offset bit는 2개)
             - 논리 블록 2000: #text("0111 1101 00", fill: blue)#text("00", fill: red)
