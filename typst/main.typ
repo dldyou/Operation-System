@@ -772,7 +772,8 @@ void *consumer(void *arg) {
 
 - consumer는 다른 consumer를 깨우면 안 되고, producer만 깨우면 되고, 반대의 경우도 마찬가지이다. 위의 경우는 그것이 안 지켜져서 모두가 잠들어버린 상황이다.
 - 이는 condition 변수를 하나를 사용하기에 발생하는 문제이다. (같은 큐에 잠들기에 producer를 깨우고자 했으나 다른 결과를 야기할 수 있음)
-    - `p3`의 cv를 `&empty`로 `c5`의 cv를 `&full`로 바꾸어주면 해결된다.
+    - `p3`의 cv를 `&empty`로 `p5`의 cv를 `&fill`로 
+    - `c3`의 cv를 `&fill`로 `c5`의 cv를 `&empty`로
 
 #prompt(```c
 int buffer[MAX];
